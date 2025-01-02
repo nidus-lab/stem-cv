@@ -1,0 +1,11 @@
+torch
+torchvision
+pillow
+matplotlib
+evaluate
+tqdm
+mlflow-skinny
+schedulefree
+torchmetrics
+python-dotenv
+boto3
