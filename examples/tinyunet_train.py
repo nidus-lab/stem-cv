@@ -1,7 +1,3 @@
-"""
-https://github.com/ChenJunren-Lab/TinyU-Net
-"""
-
 import torch
 from dotenv import load_dotenv
 
@@ -21,11 +17,11 @@ from stem_cv.tuners.learning_rate import find_lr
 # MLFLOW_TRACKING_URI=XXXXX
 load_dotenv()
 
-TEST_NAME = "test-schedule-free"
+TEST_NAME = "test-baseline2"
 
 DO_LR_FIND = False
 
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 NUM_EPOCHS = 50
 LEARNING_RATE = 5e-3
 
@@ -36,7 +32,13 @@ label_mapping = {
 }
 
 
-train_root = "./shared/study-hip-3dus-chop/huggingface/images/train"
+train_root = (
+    "./shared/study-hip-mixed-public-data/ultrasound/huggingface/images/train"
+)
+# val_root = (
+#     "./shared/study-hip-mixed-public-data/ultrasound/huggingface/images/val"
+# )
+# train_root = "./shared/study-hip-3dus-chop/huggingface/images/train"
 val_root = "./shared/study-hip-3dus-chop/huggingface/images/val"
 
 # Device
@@ -47,7 +49,8 @@ train_loader, val_loader = get_dataloaders(
     val_root,
     batch_size=BATCH_SIZE,
     label_mapping=label_mapping,
-    train_pct=0.02,
+    train_pct=1,
+    greyscale=True,
 )
 
 if DO_LR_FIND:
@@ -69,5 +72,5 @@ train_simple(
     num_epochs=NUM_EPOCHS,
     device=device,
     lr=LEARNING_RATE,
-    optimizer_name=Optimizers.AdamW,
+    optimizer_name=Optimizers.AdamWScheduleFree,
 )

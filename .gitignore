@@ -5,3 +5,6 @@ stem_cv.egg-info/
 saved_models/
 __pycache__/
 /stemcv_experiments
+/outputs
+
+**/*.png

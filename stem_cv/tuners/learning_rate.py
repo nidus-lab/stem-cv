@@ -14,7 +14,7 @@ def find_lr(
     model_name,
     dataloader,
     device,
-    optimizer_name=Optimizers.AdamW,
+    optimizer_name=Optimizers.AdamWScheduleFree,
     init_value=1e-8,
     final_value=1,
     beta=0.98,
@@ -25,10 +25,11 @@ def find_lr(
     """
 
     num_classes = dataloader.num_classes
+    in_channels = 3 if dataloader.dataset[0][0].shape[0] == 3 else 1
 
-    model = build_model_from_name(model_name, num_classes=num_classes).to(
-        device
-    )
+    model = build_model_from_name(
+        model_name, num_classes=num_classes, in_channels=in_channels
+    ).to(device)
 
     optimizer, opt_needs_set = build_optimizer_from_name(
         optimizer_name, model, lr=init_value

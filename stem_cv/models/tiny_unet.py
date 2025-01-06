@@ -19,9 +19,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from PIL import Image
+from scipy.ndimage import label
 
 from stem_cv.datasets.process import postprocess_output, preprocess_image
-from stem_cv.models.utils import CMRF, Conv, DWConv
+from stem_cv.models.utils import CMRF
 
 
 class UNetEncoder(nn.Module):
@@ -85,6 +87,7 @@ class TinyUNet(nn.Module):
         x = self.decoder2(x, skip2)
         x = self.decoder1(x, skip1)
         x = self.final_conv(x)
+
         return x
 
 
@@ -106,10 +109,16 @@ def infer(image_path, model_path, label_mapping, device="cpu"):
     Perform inference on a single image.
     """
     model = load_model(
-        model_path, device=device, num_classes=len(label_mapping)
+        model_path,
+        device=device,
+        in_channels=1,
+        num_classes=len(label_mapping) + 1,
     )
 
-    image_tensor = preprocess_image(image_path).to(device)
+    image = Image.open(image_path).convert("RGB")
+    # get image size
+    size = image.size
+    image_tensor = preprocess_image(image).to(device)
 
     with torch.no_grad():
         output = model(image_tensor)
@@ -118,4 +127,7 @@ def infer(image_path, model_path, label_mapping, device="cpu"):
         output,
         label_mapping,
     )
+
+    # resize the mask to original image size
+    pred_mask = Image.fromarray(pred_mask).resize(size)
     return pred_mask

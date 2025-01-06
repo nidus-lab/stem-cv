@@ -3,8 +3,9 @@ import os
 import random
 
 import albumentations as A
-import matplotlib.pyplot as plt
 import numpy as np
+import torch
+import torch.nn as nn
 from albumentations.pytorch import ToTensorV2
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
@@ -12,55 +13,66 @@ from torch.utils.data import DataLoader, Dataset
 from .process import postprocess_output
 
 
-class ElasticTransformImageOnly(A.ElasticTransform):
-    def apply_to_mask(self, mask, **params):
-        # Override this so that the mask is unchanged
-        return mask
-
-
-DEFAULT_TRANSFORM_TRAIN = A.Compose(
-    [
-        A.ShiftScaleRotate(
-            shift_limit=0.25,
-            scale_limit=(-0.3, 0.3),
-            rotate_limit=60,
-            interpolation=1,  # cv2.INTER_LINEAR
-            border_mode=0,  # cv2.BORDER_CONSTANT
-        ),
-        # Add Shear
-        A.Affine(shear=10, p=0.5),
-        A.MultiplicativeNoise(
-            multiplier=(0.9, 1.1),
-            per_channel=False,
-            p=0.5,
-        ),
-        A.RandomBrightnessContrast(
-            brightness_limit=0.2,
-            contrast_limit=0.2,
-            p=0.5,
-        ),
-        A.RandomGamma(
-            gamma_limit=(80, 120),
-            p=0.5,
-        ),
-        A.Resize(256, 256),
-        # You can switch to A.Normalize if you have known global mean/std
-        # For demonstration, let's do standard normalization of [0,1].
-        A.Normalize(mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0)),
-        ToTensorV2(),
-    ],
-    additional_targets={"mask": "mask"},
-)
+def get_train_transforms(rootdir, label_mapping, patch_size):
+    return A.Compose(
+        [
+            A.GridElasticDeform(
+                num_grid_xy=[4, 4],
+                magnitude=15,
+            ),
+            A.ShiftScaleRotate(
+                shift_limit=0.2,
+                scale_limit=0,
+                rotate_limit=30,
+                interpolation=1,  # cv2.INTER_LINEAR
+                border_mode=0,  # cv2.BORDER_CONSTANT
+            ),
+            A.Affine(shear=20, p=0.5),
+            A.Affine(scale=(0.6, 1.4), p=0.5),
+            A.MultiplicativeNoise(
+                multiplier=(0.9, 1.1),
+                per_channel=False,
+                p=0.5,
+            ),
+            A.RandomBrightnessContrast(
+                brightness_limit=0.2,
+                contrast_limit=0.2,
+                p=0.5,
+            ),
+            A.RandomGamma(
+                gamma_limit=(80, 120),
+                p=0.5,
+            ),
+            A.Downscale(scale_min=0.5, scale_max=1.0, p=0.25),
+            # ========================
+            A.Resize(
+                patch_size[0], patch_size[1], p=1.0
+            ),  # Ensures output matches patch size
+            A.Normalize(mean=(0, 0, 0), std=(1, 1, 1)),
+            ToTensorV2(),
+        ]
+    )
 
 
 DEFAULT_TRANSFORM_VAL = A.Compose(
     [
         A.Resize(256, 256),
-        A.Normalize(mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0)),
+        A.Normalize(mean=(0, 0, 0), std=(1, 1, 1)),
         ToTensorV2(),
     ],
     additional_targets={"mask": "mask"},
 )
+
+
+def mask2label(mask, label_mapping):
+    """
+    Convert a mask to a label image based on a label mapping.
+    """
+    label_mask = np.zeros(mask.shape[:2], dtype=np.uint8)
+    for color, label in label_mapping.items():
+        tmask = np.all(mask == color, axis=-1)
+        label_mask[tmask] = label
+    return label_mask
 
 
 class SegmentationDataset(Dataset):
@@ -78,6 +90,7 @@ class SegmentationDataset(Dataset):
         root_dir,
         label_mapping,
         transform=None,
+        greyscale=False,
     ):
         super().__init__()
         self.root_dir = root_dir
@@ -85,6 +98,7 @@ class SegmentationDataset(Dataset):
         self.mask_folder = root_dir.replace("images", "labels")
         self.transform = transform
         self.label_mapping = label_mapping
+        self.greyscale = greyscale
 
         self.image_paths = sorted(
             glob.glob(os.path.join(self.image_folder, "*.*"))
@@ -118,13 +132,15 @@ class SegmentationDataset(Dataset):
         image = np.array(image, dtype=np.uint8)
         mask_image = np.array(mask_image, dtype=np.uint8)
 
+        if self.greyscale:
+            # only take first channel (i.e make greyscale)
+            image = image[:, :, 0]
+
         # Create a 2D mask based on the label mapping
-        mask = np.zeros(mask_image.shape[:2], dtype=np.uint8)
-        for color, label in self.label_mapping.items():
-            tmask = np.all(mask_image == color, axis=-1)
-            mask[tmask] = label
+        mask = mask2label(mask_image, self.label_mapping)
 
         augmented = self.transform(image=image, mask=mask)
+
         image = augmented["image"]
         mask = augmented["mask"]
 
@@ -144,26 +160,43 @@ def get_dataloaders(
     val_transform=None,
     train_pct=1.0,
     val_pct=1.0,
+    greyscale=False,
 ):
     """
     Creates and returns (train_loader, val_loader).
     train_transform, val_transform should be Albumentations
     or None for fallback transforms.
     """
+    import copy
+
     if train_transform is None:
-        train_transform = DEFAULT_TRANSFORM_TRAIN
+        train_transform = get_train_transforms(
+            train_root, label_mapping, (256, 256)
+        )
     if val_transform is None:
         val_transform = DEFAULT_TRANSFORM_VAL
+
+    wrapped_transform = A.ReplayCompose(
+        copy.deepcopy(train_transform.transforms)
+    )
+
+    # Apply the ReplayCompose
+    image = np.random.randint(
+        0, 256, (512, 512, 3), dtype=np.uint8
+    )  # Example image
+    augmented = wrapped_transform(image=image)
 
     train_dataset = SegmentationDataset(
         root_dir=train_root,
         label_mapping=label_mapping,
         transform=train_transform,
+        greyscale=greyscale,
     )
     val_dataset = SegmentationDataset(
         root_dir=val_root,
         label_mapping=label_mapping,
         transform=val_transform,
+        greyscale=greyscale,
     )
 
     train_loader = DataLoader(
@@ -180,10 +213,12 @@ def get_dataloaders(
     )
 
     # Store some metadata on loaders
-    train_loader.num_classes = len(label_mapping) + 1
-    val_loader.num_classes = len(label_mapping) + 1
+    num_classes = len(np.unique(list(label_mapping.values()))) + 1
+    train_loader.num_classes = num_classes
+    val_loader.num_classes = num_classes
     train_loader.label_mapping = label_mapping
     val_loader.label_mapping = label_mapping
+    train_loader.transforms_dict = augmented["replay"]
 
     # Optionally reduce dataset size
     train_len = int(train_pct * len(train_dataset))
@@ -217,6 +252,10 @@ def display_augs(train_loader):
             # Convert the image and mask for visualization
             image = image.permute(1, 2, 0).numpy()
             image = apply_image_denorm(image)
+
+            # make the image RGB
+            if image.shape[-1] == 1:
+                image = np.repeat(image, 3, axis=-1)
 
             mask = postprocess_output(
                 mask, train_loader.label_mapping, needs_argmax=False
