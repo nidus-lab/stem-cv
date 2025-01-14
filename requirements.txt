@@ -9,3 +9,4 @@ schedulefree
 torchmetrics
 python-dotenv
 boto3
+timm==0.4.12

@@ -156,8 +156,8 @@ def get_dataloaders(
     batch_size,
     label_mapping,
     num_workers=4,
-    train_transform=None,
-    val_transform=None,
+    train_transform_func=None,
+    val_transform_func=None,
     train_pct=1.0,
     val_pct=1.0,
     greyscale=False,
@@ -169,12 +169,16 @@ def get_dataloaders(
     """
     import copy
 
-    if train_transform is None:
-        train_transform = get_train_transforms(
-            train_root, label_mapping, (256, 256)
-        )
-    if val_transform is None:
-        val_transform = DEFAULT_TRANSFORM_VAL
+    if train_transform_func is None:
+        train_transform_func = get_train_transforms
+    if val_transform_func is None:
+        val_transform_func = lambda: DEFAULT_TRANSFORM_VAL
+
+    train_transform = train_transform_func(
+        train_root, label_mapping, (256, 256)
+    )
+
+    val_transform = val_transform_func()
 
     wrapped_transform = A.ReplayCompose(
         copy.deepcopy(train_transform.transforms)

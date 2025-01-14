@@ -9,8 +9,6 @@ import torch
 import torch.nn as nn
 from mlflow import create_experiment, get_experiment_by_name, set_experiment
 from PIL import Image
-from torchmetrics.classification import Dice, MulticlassJaccardIndex
-
 from stem_cv.config import (
     Optimizers,
     build_model_from_name,
@@ -21,6 +19,7 @@ from stem_cv.datasets.process import (
     keep_largest_components,
     postprocess_output,
 )
+from torchmetrics.classification import Dice, MulticlassJaccardIndex
 
 BUCKET_NAME = "stemcv-artifacts"
 
@@ -108,6 +107,7 @@ def evaluate(
     device,
     opt_needs_set,
     num_classes,
+    largest_component_only=True,
 ):
     iou_metric = MulticlassJaccardIndex(
         num_classes=num_classes, ignore_index=0
@@ -133,7 +133,10 @@ def evaluate(
         outputs = model(images)
         ce_loss = nn.CrossEntropyLoss()(outputs, masks)
 
-        pred_class = keep_largest_components(outputs, num_classes)
+        if largest_component_only:
+            pred_class = keep_largest_components(outputs, num_classes)
+        else:
+            pred_class = outputs.argmax(dim=1)
 
         # Update metrics
         iou_metric.update(pred_class, masks)
@@ -187,6 +190,7 @@ def train_simple(
     num_epochs=20,
     device="cuda",
     lr=0.05,
+    largest_component_only=True,
 ):
 
     test_dir = f"{experiment_name}/{test_name}"
@@ -294,6 +298,7 @@ def train_simple(
                 device,
                 opt_needs_set,
                 num_classes=num_classes,
+                largest_component_only=largest_component_only,
             )
 
             iou_r = round(val_iou, 3)
