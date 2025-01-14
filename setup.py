@@ -1,7 +1,3 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 
-setup(
-    name="stem-cv",
-    version="0.1.0",
-    packages=["stem_cv"],
-)
+setup(name="stem-cv", version="0.1.0", packages=find_packages())
