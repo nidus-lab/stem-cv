@@ -41,10 +41,12 @@ class UNetDecoder(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(UNetDecoder, self).__init__()
         self.cmrf = CMRF(in_channels, out_channels)
-        self.upsample = nn.Upsample(scale_factor=2, mode="bicubic", align_corners=False)
+        self.upsample = F.interpolate
 
     def forward(self, x, skip_connection):
-        x = self.upsample(x)
+        x = self.upsample(
+            x, scale_factor=2, mode="bicubic", align_corners=False
+        )
         x = torch.cat([x, skip_connection], dim=1)
         x = self.cmrf(x)
         return x
